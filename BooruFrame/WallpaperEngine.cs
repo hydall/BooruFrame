@@ -38,6 +38,9 @@ public sealed class WallpaperEngine : IDisposable
 
     public bool IsAttached { get; private set; }
 
+    /// <summary>The desktop background window we are parented to, while attached.</summary>
+    public IntPtr Layer { get; private set; }
+
     /// <summary>Result of the last <see cref="Attach"/> call.</summary>
     public AttachError LastError { get; private set; }
 
@@ -75,6 +78,8 @@ public sealed class WallpaperEngine : IDisposable
             return false;
         }
 
+        Layer = layer;
+
         // Keep our window at the bottom of the layer's child list so it can never cover
         // the desktop icons.
         SetWindowPos(_windowHandle, HWND_BOTTOM, 0, 0, 0, 0,
@@ -94,6 +99,7 @@ public sealed class WallpaperEngine : IDisposable
         var ok = GetAncestor(_windowHandle, GA_PARENT) == target;
 
         _originalParent = IntPtr.Zero;
+        Layer = IntPtr.Zero;
         IsAttached = false;
         return ok;
     }

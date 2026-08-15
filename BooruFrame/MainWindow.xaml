@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         Title="BooruFrame"
+        Icon="Resources/frame.ico"
         Height="720" Width="960"
         MinHeight="360" MinWidth="480"
         Background="Black"

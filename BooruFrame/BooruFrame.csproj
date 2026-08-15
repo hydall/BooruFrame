@@ -11,7 +11,14 @@
     <AssemblyName>BooruFrame</AssemblyName>
     <RootNamespace>BooruFrame</RootNamespace>
     <Version>1.0.0</Version>
+    <ApplicationIcon>Resources\frame.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Same icon again as an app resource, so the window and the tray can load it at run
+         time (see tools/make_icon.py for how it is generated). -->
+    <Resource Include="Resources\frame.ico" />
+  </ItemGroup>
 
   <ItemGroup>
     <!-- UseWindowsForms adds global usings for System.Windows.Forms and System.Drawing,

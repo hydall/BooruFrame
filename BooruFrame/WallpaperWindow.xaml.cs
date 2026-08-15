@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Media.Imaging;
+using Microsoft.Win32;
 
 namespace BooruFrame;
 
@@ -15,6 +16,7 @@ namespace BooruFrame;
 public partial class WallpaperWindow : Window
 {
     private WallpaperEngine? _engine;
+    private bool _watchingDisplays;
 
     /// <summary>True once the window really sits on the desktop background layer.</summary>
     public bool IsAttached { get; private set; }
@@ -40,8 +42,14 @@ public partial class WallpaperWindow : Window
 
         IsAttached = _engine.Attach();
         AttachError = _engine.LastError;
-        if (IsAttached)
-            SpanVirtualScreen();
+        if (!IsAttached)
+            return;
+
+        SpanVirtualScreen();
+
+        // Plugging a monitor in or changing a resolution resizes the desktop underneath us.
+        SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
+        _watchingDisplays = true;
     }
 
     protected override void OnClosing(CancelEventArgs e)
@@ -53,33 +61,35 @@ public partial class WallpaperWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        if (_watchingDisplays)
+        {
+            SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
+            _watchingDisplays = false;
+        }
+
         _engine?.Dispose();
         _engine = null;
         IsAttached = false;
         base.OnClosed(e);
     }
 
-    /// <summary>Cover the entire virtual desktop (all monitors).</summary>
+    private void OnDisplaySettingsChanged(object? sender, EventArgs e) =>
+        Dispatcher.BeginInvoke(new Action(SpanVirtualScreen));
+
+    /// <summary>
+    /// Cover the entire virtual desktop (all monitors), in real pixels.
+    ///
+    /// WPF's Left/Top/Width/Height are no use here: the window is a child of the desktop
+    /// background window, so its position is measured from that window's top-left corner and
+    /// not from the screen's, and on a mixed-DPI desktop no single WPF scale factor is right
+    /// for every monitor. Both problems go away in pixels.
+    /// </summary>
     private void SpanVirtualScreen()
     {
-        var dpi = GetDpiScale();
-        Left = SystemParameters.VirtualScreenLeft;
-        Top = SystemParameters.VirtualScreenTop;
-        Width = SystemParameters.VirtualScreenWidth / dpi;
-        Height = SystemParameters.VirtualScreenHeight / dpi;
-    }
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero || _engine is not { IsAttached: true })
+            return;
 
-    private double GetDpiScale()
-    {
-        try
-        {
-            return PresentationSource.FromVisual(this) is { } src
-                ? src.CompositionTarget.TransformToDevice.M11
-                : 1.0;
-        }
-        catch
-        {
-            return 1.0;
-        }
+        WindowPlacement.CoverScreenRect(hwnd, _engine.Layer, WindowPlacement.VirtualScreen());
     }
 }
