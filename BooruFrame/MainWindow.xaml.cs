@@ -177,6 +177,35 @@ public partial class MainWindow : Window
         SendToDesktopBottom(); // desktop-frame mode starts out resting on the background
     }
 
+    /// <summary>
+    /// Someone started the app again while this copy is running. That is a request to see it,
+    /// so the window comes up — and in wallpaper mode the settings come up with it, since the
+    /// picture is already on the desktop and the settings are the only reason left to open a
+    /// window at all.
+    ///
+    /// Called from a thread-pool thread (see <see cref="SingleInstance"/>).
+    /// </summary>
+    public void ShowForAnotherLaunch()
+    {
+        if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+            return;
+
+        try
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (WallpaperActive)
+                    OpenSettingsFromTray();
+                else
+                    ShowMainWindow();
+            }));
+        }
+        catch (Exception)
+        {
+            // The app is on its way out — there is nothing left to show.
+        }
+    }
+
     private static HttpClient CreateHttpClient()
     {
         var client = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };

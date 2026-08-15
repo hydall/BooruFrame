@@ -53,9 +53,10 @@ the download button.
 
 - Interface languages: English, Russian, Polish. On first run the app follows your Windows
   language.
-- One copy at a time. Starting it again while it is running says so and points you at the
-  tray icon instead of opening a second frame — worth knowing, because in wallpaper mode
-  the app has no window on screen and looks like it isn't running at all.
+- One copy at a time. Starting it again does not open a second frame — it brings up the
+  window of the copy that is already running, with the settings open if the wallpaper is
+  running (there is nothing else to look at then). Handy when the app is in the tray with no
+  window on screen and looks like it isn't running at all.
 - Errors show up as red toasts in the top-left corner and stay until you close them; you
   can set them to auto-hide after N seconds instead.
 - Everything (language, scaling, interval, tags, filters, site profiles) is saved to
