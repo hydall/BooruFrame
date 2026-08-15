@@ -45,6 +45,10 @@ public static class Localization
         _ => Lang.Ru,
     };
 
+    /// <summary>The saved language, or the system's one when nothing has been chosen yet.</summary>
+    public static Lang Resolve(string? saved) =>
+        string.IsNullOrEmpty(saved) ? FromSystem() : Parse(saved);
+
     /// <summary>Best-effort match of the OS UI language; falls back to English.</summary>
     public static Lang FromSystem()
     {
@@ -139,6 +143,7 @@ public static class Localization
             ["S_WallpaperFailAttach"] = "Не удалось включить режим обоев: Windows не дала встроить окно в рабочий стол. Попробуйте перезапустить проводник (explorer.exe) и запускать BooruFrame без прав администратора.",
             ["S_ErrNet"] = "Сетевая ошибка: {0}",
             ["S_ErrGel"] = "Gelbooru требует API-ключи. Откройте настройки сайта и укажите user_id + api_key.",
+            ["S_AlreadyRunning"] = "BooruFrame уже запущен — работает только одна копия.\n\nЕё значок находится в области уведомлений: нажмите на него, чтобы открыть окно.",
             ["U_Sec"] = "сек",
             ["U_Min"] = "мин",
             ["Tray_Show"] = "Показать окно",
@@ -227,6 +232,7 @@ public static class Localization
             ["S_WallpaperFailAttach"] = "Nie udało się włączyć trybu tapety: Windows odmówił osadzenia okna w pulpicie. Spróbuj zrestartować Eksploratora (explorer.exe) i uruchamiać BooruFrame bez uprawnień administratora.",
             ["S_ErrNet"] = "Błąd sieci: {0}",
             ["S_ErrGel"] = "Gelbooru wymaga kluczy API. Otwórz ustawienia strony i podaj user_id + api_key.",
+            ["S_AlreadyRunning"] = "BooruFrame jest już uruchomiony — działa tylko jedna kopia.\n\nJej ikona jest w obszarze powiadomień: kliknij ją, aby otworzyć okno.",
             ["U_Sec"] = "s",
             ["U_Min"] = "min",
             ["Tray_Show"] = "Pokaż okno",
@@ -315,6 +321,7 @@ public static class Localization
             ["S_WallpaperFailAttach"] = "Could not enter wallpaper mode: Windows refused to embed the window into the desktop. Try restarting Explorer (explorer.exe) and running BooruFrame without administrator rights.",
             ["S_ErrNet"] = "Network error: {0}",
             ["S_ErrGel"] = "Gelbooru requires API keys. Open the site settings and set user_id + api_key.",
+            ["S_AlreadyRunning"] = "BooruFrame is already running — only one copy runs at a time.\n\nIts icon is in the notification area: click it to open the window.",
             ["U_Sec"] = "s",
             ["U_Min"] = "min",
             ["Tray_Show"] = "Show window",

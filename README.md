@@ -53,6 +53,9 @@ the download button.
 
 - Interface languages: English, Russian, Polish. On first run the app follows your Windows
   language.
+- One copy at a time. Starting it again while it is running says so and points you at the
+  tray icon instead of opening a second frame — worth knowing, because in wallpaper mode
+  the app has no window on screen and looks like it isn't running at all.
 - Errors show up as red toasts in the top-left corner and stay until you close them; you
   can set them to auto-hide after N seconds instead.
 - Everything (language, scaling, interval, tags, filters, site profiles) is saved to

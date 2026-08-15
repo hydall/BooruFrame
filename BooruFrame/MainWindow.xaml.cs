@@ -84,9 +84,7 @@ public partial class MainWindow : Window
     {
         _settings = AppSettings.Load();
 
-        var lang = string.IsNullOrEmpty(_settings.Language)
-            ? Localization.FromSystem()
-            : Localization.Parse(_settings.Language);
+        var lang = Localization.Resolve(_settings.Language);
         Localization.Apply(lang);
         _settings.Language = lang.ToString();
         _settings.Save();
