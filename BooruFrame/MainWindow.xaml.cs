@@ -22,16 +22,23 @@ public partial class MainWindow : Window
     private const int HistoryLimit = 10;
     private const int WallpaperHotkeyId = 0xB00F;
 
-    /// <summary>Far off-screen spot used to start the app straight into the tray unseen.</summary>
-    private const double OffscreenPark = -32000;
-
     private static readonly HttpClient Http = CreateHttpClient();
 
     private readonly AppSettings _settings;
     private readonly ObservableCollection<BooruPreset> _presets;
 
     private readonly DispatcherTimer _autoTimer;
+    private readonly DispatcherTimer _placementSaveTimer;
     private readonly Random _random = new();
+
+    /// <summary>Set once the saved geometry has been applied; until then nothing is worth saving.</summary>
+    private bool _placementReady;
+
+    /// <summary>Where the window was asked to sit, so a DPI change can be corrected for.</summary>
+    private PixelRect _wantedPlacement;
+    private int _placementFixups;
+
+    private bool _startedUp;
 
     private WallpaperWindow? _wallpaperWindow;
     private bool _applyingFrameStyle;
@@ -94,6 +101,15 @@ public partial class MainWindow : Window
         _autoTimer = new DispatcherTimer();
         _autoTimer.Tick += (_, _) => NextImage();
 
+        // Moving and resizing a window produces a flood of events — remember the geometry
+        // immediately but only write the file once things have settled.
+        _placementSaveTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        _placementSaveTimer.Tick += (_, _) =>
+        {
+            _placementSaveTimer.Stop();
+            _settings.Save();
+        };
+
         TagsBox.Text = _settings.Tags;
         IntervalSlider.Value = Math.Clamp(_settings.IntervalSeconds, 5, 600);
         ErrorSlider.Value = Math.Clamp(_settings.HideErrorsSeconds, 0, 60);
@@ -120,17 +136,10 @@ public partial class MainWindow : Window
         UpdateMaxButton();
         SetStatusKey("S_Initial");
 
-        RestoreWindowPlacement();
-
-        // Wallpaper mode means "app in the tray": park the very first show off-screen so
-        // nothing flashes before Loaded hides the window. Parking (rather than starting
-        // minimized) leaves the normal startup sequence — Loaded included — untouched.
-        if (_settings.WallpaperMode)
-        {
-            WindowStartupLocation = WindowStartupLocation.Manual;
-            Left = OffscreenPark;
-            Top = OffscreenPark;
-        }
+        // Geometry is restored from the settings once the window has a handle, in physical
+        // pixels (see OnSourceInitialized); WPF's own start-up placement is switched off so
+        // it cannot fight with it.
+        WindowStartupLocation = WindowStartupLocation.Manual;
 
         _tray = new TrayIcon();
         _tray.VisibilityRequested += ToggleWindowVisibility;
@@ -143,6 +152,31 @@ public partial class MainWindow : Window
         _tray.SetPlaying(_isPlaying);
         _tray.SetWindowVisible(IsVisible);
         _tray.SetWallpaperActive(WallpaperActive);
+    }
+
+    /// <summary>
+    /// Finish starting up, once, from <see cref="App"/>.
+    ///
+    /// The handle is created up front instead of by showing the window: that runs the whole
+    /// initialisation — message hook, global hotkey, saved geometry — while leaving it up to
+    /// us whether the window is ever put on screen. In wallpaper mode it is not: the app goes
+    /// straight to the tray without anything flashing on the desktop first.
+    /// </summary>
+    public void StartUp()
+    {
+        if (_startedUp)
+            return;
+        _startedUp = true;
+
+        new System.Windows.Interop.WindowInteropHelper(this).EnsureHandle();
+
+        if (_settings.WallpaperMode)
+            EnterWallpaperMode(); // the window stays hidden; the picture goes on the desktop
+        else
+            ShowMainWindow();
+
+        StartAuto();           // begin the slideshow
+        SendToDesktopBottom(); // desktop-frame mode starts out resting on the background
     }
 
     private static HttpClient CreateHttpClient()
@@ -159,16 +193,11 @@ public partial class MainWindow : Window
         MouseLeave += (_, _) => HideToolbar();
         MouseLeftButtonDown += Window_MouseDown;
         KeyDown += Window_KeyDown;
-        Loaded += (_, _) =>
-        {
-            StartAuto(); // begin the slideshow as soon as the window opens
-            if (_settings.WallpaperMode)
-            {
-                EnterWallpaperMode();     // hides this window: the app runs from the tray
-                RestoreParkedPlacement(); // so the tray later opens it where it belongs
-            }
-            SendToDesktopBottom(); // desktop-frame mode starts out resting on the background
-        };
+
+        // Remember where the user puts the window, whichever mode the app is running in.
+        LocationChanged += (_, _) => SchedulePlacementSave();
+        SizeChanged += (_, _) => SchedulePlacementSave();
+
         IsVisibleChanged += (_, _) =>
         {
             _tray?.SetWindowVisible(IsVisible);
@@ -191,7 +220,7 @@ public partial class MainWindow : Window
         MinBtn.Click += (_, _) =>
         {
             if (DesktopFrameActive)
-                Hide();
+                HideToTray();
             else
                 WindowState = WindowState.Minimized;
         };
@@ -367,6 +396,10 @@ public partial class MainWindow : Window
         // Normal window by default; the tool-window style is applied only in desktop-frame mode.
         ApplyDesktopFrameStyle();
 
+        // The handle exists but the window has not been shown yet — the one moment where the
+        // saved geometry can be put in place without anything appearing in the wrong spot first.
+        RestoreSavedPlacement();
+
         // Ask DWM for rounded corners (Windows 11). DWM automatically drops the rounding
         // while maximized, so square corners in fullscreen come for free.
         try
@@ -444,6 +477,7 @@ public partial class MainWindow : Window
     {
         base.OnStateChanged(e);
         UpdateMaxButton();
+        SchedulePlacementSave(); // maximized/normal is part of what gets restored
     }
 
     private void Window_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
@@ -667,9 +701,16 @@ public partial class MainWindow : Window
     private void ToggleWindowVisibility()
     {
         if (IsVisible)
-            Hide();
+            HideToTray();
         else
             ShowMainWindow();
+    }
+
+    /// <summary>Put the app away into the tray, remembering where its window was first.</summary>
+    private void HideToTray()
+    {
+        SavePlacementNow();
+        Hide();
     }
 
     private void OpenSettingsFromTray()
@@ -852,6 +893,7 @@ public partial class MainWindow : Window
             _settings.Save();
             WallpaperCheck.IsChecked = false;
             _tray?.SetWallpaperActive(false);
+            ShowMainWindow(); // may not be on screen at all yet if the app started in this mode
             ShowToast(Localization.Get(reason == WallpaperEngine.AttachError.ReparentRejected
                 ? "S_WallpaperFailAttach"
                 : "S_WallpaperFail"), error: true);
@@ -868,8 +910,10 @@ public partial class MainWindow : Window
         DesktopFrameCheck.IsEnabled = false; // has no effect while the wallpaper runs
         _tray?.SetWallpaperActive(true);
 
-        // The app itself goes to the tray; the picture keeps cycling on the desktop.
-        Hide();
+        // The app itself goes to the tray; the picture keeps cycling on the desktop. The
+        // window keeps its geometry while it is away, so opening it from the tray — now or
+        // on the next run — puts it back exactly where the user left it.
+        HideToTray();
         ApplyDesktopFrameStyle(); // desktop-frame mode never applies while the wallpaper runs
     }
 
@@ -888,19 +932,6 @@ public partial class MainWindow : Window
 
         ApplyDesktopFrameStyle(); // back under the user's own display setting
         ShowMainWindow();
-    }
-
-    /// <summary>Undo the off-screen parking used to start the app straight into the tray.</summary>
-    private void RestoreParkedPlacement()
-    {
-        if (RestoreWindowPlacement())
-            return;
-
-        // Nothing worth restoring (first run) — centre a default-sized window.
-        Width = 960;
-        Height = 720;
-        Left = (SystemParameters.PrimaryScreenWidth - Width) / 2;
-        Top = (SystemParameters.PrimaryScreenHeight - Height) / 2;
     }
 
     /// <summary>Bring the main window up as a full, ordinary window (from the tray or elsewhere).</summary>
@@ -1449,122 +1480,236 @@ public partial class MainWindow : Window
     }
 
     // ---------------------------------------------------------------- window placement persistence
+    //
+    // Everything here works in physical pixels through Win32, not in WPF units: the app is
+    // per-monitor DPI aware, so WPF's Left/Top/Width/Height mean different distances on
+    // different screens, and a window that was closed maximized has to remember both which
+    // monitor it was maximized on and how big it was before that.
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct WinRect { public int Left, Top, Right, Bottom; }
+    private IntPtr Handle => new System.Windows.Interop.WindowInteropHelper(this).Handle;
 
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    private struct MonitorInfoEx
+    /// <summary>Put the window where it was when the app last ran (or somewhere sensible).</summary>
+    private void RestoreSavedPlacement()
     {
-        public int cbSize;
-        public WinRect rcMonitor;
-        public WinRect rcWork;
-        public uint dwFlags;
-        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
-        public string szDevice;
-    }
+        var hwnd = Handle;
+        if (hwnd == IntPtr.Zero)
+            return;
 
-    private delegate bool MonitorEnumProc(IntPtr hMonitor, IntPtr hdc, ref WinRect rc, IntPtr data);
+        var (rect, maximized) = ResolveStartupPlacement();
+        _wantedPlacement = rect;
 
-    [DllImport("user32.dll")]
-    private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
+        WindowPlacement.SetRestoreBounds(hwnd, rect);
 
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MonitorInfoEx info);
-
-    [DllImport("user32.dll")]
-    private static extern bool EnumDisplayMonitors(IntPtr hdc, IntPtr clip, MonitorEnumProc proc, IntPtr data);
-
-    private static List<string> GetMonitorDevices()
-    {
-        var devices = new List<string>();
-        EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, (IntPtr h, IntPtr dc, ref WinRect rc, IntPtr d) =>
-        {
-            var info = new MonitorInfoEx { cbSize = Marshal.SizeOf<MonitorInfoEx>() };
-            if (GetMonitorInfo(h, ref info) && !string.IsNullOrEmpty(info.szDevice))
-                devices.Add(info.szDevice);
-            return true;
-        }, IntPtr.Zero);
-        return devices;
-    }
-
-    private string GetCurrentMonitorDevice()
-    {
-        try
-        {
-            const uint MONITOR_DEFAULTTONEAREST = 2;
-            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-            var monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-            if (monitor == IntPtr.Zero)
-                return "";
-            var info = new MonitorInfoEx { cbSize = Marshal.SizeOf<MonitorInfoEx>() };
-            return GetMonitorInfo(monitor, ref info) ? info.szDevice : "";
-        }
-        catch
-        {
-            return "";
-        }
-    }
-
-    private bool RestoreWindowPlacement()
-    {
-        var s = _settings;
-        if (s.WindowLeft is null || s.WindowTop is null ||
-            s.WindowWidth is null || s.WindowHeight is null)
-            return false;
-
-        var width = Math.Clamp(s.WindowWidth.Value, MinWidth, SystemParameters.VirtualScreenWidth);
-        var height = Math.Clamp(s.WindowHeight.Value, MinHeight, SystemParameters.VirtualScreenHeight);
-        var left = s.WindowLeft.Value;
-        var top = s.WindowTop.Value;
-
-        var vLeft = SystemParameters.VirtualScreenLeft;
-        var vTop = SystemParameters.VirtualScreenTop;
-        var vRight = vLeft + SystemParameters.VirtualScreenWidth;
-        var vBottom = vTop + SystemParameters.VirtualScreenHeight;
-
-        // Bail out if the saved rect no longer overlaps the current virtual desktop
-        // (e.g. its monitor was unplugged), so the window opens centered instead of off-screen.
-        var intersects = left < vRight && left + width > vLeft && top < vBottom && top + height > vTop;
-        if (!intersects)
-            return false;
-
-        // If a specific monitor was recorded, require it to still be present.
-        if (!string.IsNullOrEmpty(s.MonitorDevice) && !GetMonitorDevices().Contains(s.MonitorDevice))
-            return false;
-
-        WindowStartupLocation = WindowStartupLocation.Manual;
-        Left = Math.Clamp(left, vLeft, vRight - width);
-        Top = Math.Clamp(top, vTop, vBottom - height);
-        Width = width;
-        Height = height;
-
-        if (s.WindowState == "Maximized")
+        // Maximizing is left to WPF so its own idea of the window state stays correct; it
+        // lands on the right screen because the window is already sitting there.
+        if (maximized)
             WindowState = WindowState.Maximized;
 
+        _placementReady = true;
+
+        // Moving onto a screen with a different DPI makes Windows rescale the window behind
+        // our back, so check the result once the dust has settled and correct it if needed.
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(VerifyPlacement));
+    }
+
+    /// <summary>Re-apply the wanted geometry if a DPI change moved or resized the window.</summary>
+    private void VerifyPlacement()
+    {
+        if (!_placementReady || _placementFixups >= 2 || WindowState != WindowState.Normal)
+            return;
+
+        var hwnd = Handle;
+        if (hwnd == IntPtr.Zero ||
+            !WindowPlacement.TryGet(hwnd, out var actual, out var maximized) || maximized)
+            return;
+
+        if (Math.Abs(actual.Left - _wantedPlacement.Left) <= 2 &&
+            Math.Abs(actual.Top - _wantedPlacement.Top) <= 2 &&
+            Math.Abs(actual.Width - _wantedPlacement.Width) <= 2 &&
+            Math.Abs(actual.Height - _wantedPlacement.Height) <= 2)
+            return;
+
+        _placementFixups++;
+        WindowPlacement.SetRestoreBounds(hwnd, _wantedPlacement);
+
+        // Loaded runs ahead of user input, so the second look still happens before anyone can
+        // have dragged the window somewhere else.
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(VerifyPlacement));
+    }
+
+    /// <summary>The saved rectangle if it still makes sense, otherwise a centred default.</summary>
+    private (PixelRect Rect, bool Maximized) ResolveStartupPlacement() =>
+        TryBuildSavedPlacement(out var rect, out var maximized)
+            ? (rect, maximized)
+            : (DefaultPlacement(), false);
+
+    private bool TryBuildSavedPlacement(out PixelRect rect, out bool maximized)
+    {
+        rect = default;
+        maximized = false;
+
+        var s = _settings;
+        if (s.WindowLeft is null || s.WindowTop is null || s.WindowWidth is null || s.WindowHeight is null)
+            return false;
+
+        var saved = new PixelRect(
+            (int)Math.Round(s.WindowLeft.Value),
+            (int)Math.Round(s.WindowTop.Value),
+            (int)Math.Round(s.WindowWidth.Value),
+            (int)Math.Round(s.WindowHeight.Value));
+        if (saved.IsEmpty)
+            return false;
+
+        var monitors = WindowPlacement.All();
+        if (monitors.Count == 0)
+            return false;
+
+        var wanted = saved;
+        var target = WindowPlacement.ByDevice(s.MonitorDevice);
+
+        if (target is not null)
+        {
+            // The same display is still connected: follow it if it has been moved to another
+            // spot on the desktop, or had its resolution changed, since the app was last run.
+            if (SavedMonitorBounds() is { } was && was != target.Bounds && !was.IsEmpty)
+                wanted = FollowMonitor(saved, was, target.Bounds);
+        }
+        else
+        {
+            // No display recorded, or it is gone — go by where the window itself was.
+            target = WindowPlacement.Covering(saved);
+        }
+
+        target ??= WindowPlacement.Primary() ?? monitors[0];
+
+        if (!wanted.Intersects(target.Bounds))
+            wanted = Centre(wanted.Width, wanted.Height, target.WorkArea);
+
+        // A window that fits its screen is put back exactly as it was — including one sized
+        // to cover the taskbar on purpose. Anything else is pulled into the work area.
+        rect = target.Bounds.Contains(wanted) ? wanted : ClampInto(wanted, target);
+        maximized = s.WindowState == "Maximized";
         return true;
     }
 
-    private void SaveWindowPlacement()
+    private PixelRect? SavedMonitorBounds()
     {
-        var bounds = RestoreBounds;
-        if (bounds.Width <= 0 || bounds.Height <= 0)
-            bounds = new Rect(Left, Top, Width, Height);
+        var s = _settings;
+        if (s.MonitorLeft is null || s.MonitorTop is null || s.MonitorWidth is null || s.MonitorHeight is null)
+            return null;
 
-        // A window that was never really shown (app started straight into the tray) has no
-        // placement of its own yet — keep the stored one instead of writing NaNs or the
-        // off-screen parking spot.
-        if (double.IsNaN(bounds.Left) || double.IsNaN(bounds.Top) ||
-            double.IsNaN(bounds.Width) || double.IsNaN(bounds.Height) ||
-            bounds.Left <= OffscreenPark || bounds.Top <= OffscreenPark)
+        return new PixelRect(
+            (int)Math.Round(s.MonitorLeft.Value),
+            (int)Math.Round(s.MonitorTop.Value),
+            (int)Math.Round(s.MonitorWidth.Value),
+            (int)Math.Round(s.MonitorHeight.Value));
+    }
+
+    /// <summary>Carry a rectangle over to where its monitor is now, keeping its relative spot.</summary>
+    private static PixelRect FollowMonitor(PixelRect rect, PixelRect was, PixelRect now)
+    {
+        var scaleX = now.Width / (double)was.Width;
+        var scaleY = now.Height / (double)was.Height;
+
+        return new PixelRect(
+            now.Left + (int)Math.Round((rect.Left - was.Left) * scaleX),
+            now.Top + (int)Math.Round((rect.Top - was.Top) * scaleY),
+            Math.Min(rect.Width, now.Width),
+            Math.Min(rect.Height, now.Height));
+    }
+
+    /// <summary>A default-sized window in the middle of the primary screen (first run).</summary>
+    private PixelRect DefaultPlacement()
+    {
+        var monitor = WindowPlacement.Primary() ?? WindowPlacement.OfWindow(Handle);
+        var area = monitor?.WorkArea ?? WindowPlacement.VirtualScreen();
+        var scale = WindowPlacement.DpiOf(monitor) / 96.0;
+
+        var width = (int)Math.Round(960 * scale);
+        var height = (int)Math.Round(720 * scale);
+        return ClampInto(Centre(width, height, area), monitor);
+    }
+
+    private static PixelRect Centre(int width, int height, PixelRect area) => new(
+        area.Left + (area.Width - width) / 2,
+        area.Top + (area.Height - height) / 2,
+        width,
+        height);
+
+    /// <summary>Keep a window inside a screen's work area, never smaller than the app allows.</summary>
+    private PixelRect ClampInto(PixelRect rect, MonitorInfo? monitor)
+    {
+        var area = monitor?.WorkArea ?? WindowPlacement.VirtualScreen();
+        var scale = WindowPlacement.DpiOf(monitor) / 96.0;
+
+        var width = Math.Clamp(rect.Width, Math.Min((int)Math.Round(MinWidth * scale), area.Width), area.Width);
+        var height = Math.Clamp(rect.Height, Math.Min((int)Math.Round(MinHeight * scale), area.Height), area.Height);
+
+        return new PixelRect(
+            Math.Clamp(rect.Left, area.Left, Math.Max(area.Left, area.Right - width)),
+            Math.Clamp(rect.Top, area.Top, Math.Max(area.Top, area.Bottom - height)),
+            width,
+            height);
+    }
+
+    /// <summary>Note the current geometry and write it out a moment later.</summary>
+    private void SchedulePlacementSave()
+    {
+        if (!CapturePlacement())
             return;
+        _placementSaveTimer.Stop();
+        _placementSaveTimer.Start();
+    }
 
-        _settings.WindowLeft = bounds.Left;
-        _settings.WindowTop = bounds.Top;
-        _settings.WindowWidth = bounds.Width;
-        _settings.WindowHeight = bounds.Height;
-        _settings.WindowState = WindowState == WindowState.Maximized ? "Maximized" : "Normal";
-        _settings.MonitorDevice = GetCurrentMonitorDevice();
+    /// <summary>Note the current geometry and write it out straight away.</summary>
+    private void SavePlacementNow()
+    {
+        _placementSaveTimer.Stop();
+        if (CapturePlacement())
+            _settings.Save();
+    }
+
+    /// <summary>
+    /// Copy the window's restored rectangle and its screen into the settings. Works while the
+    /// window is hidden in the tray or minimized as well, so wallpaper mode remembers just as
+    /// much as an ordinary window does.
+    /// </summary>
+    private bool CapturePlacement()
+    {
+        if (!_placementReady)
+            return false;
+
+        var hwnd = Handle;
+        if (hwnd == IntPtr.Zero || !WindowPlacement.TryGet(hwnd, out var normal, out var restoresMaximized))
+            return false;
+
+        // While the window sits in the tray Windows only knows it as "hidden", so WPF's own
+        // state is what says whether it should come back maximized. A minimized window is the
+        // other way round: only the placement remembers what it was before.
+        var maximized = WindowState switch
+        {
+            WindowState.Maximized => true,
+            WindowState.Normal => false,
+            _ => restoresMaximized,
+        };
+
+        // A maximized window covers its screen, so ask Windows which one that is; otherwise the
+        // restored rectangle says it.
+        var monitor = (maximized ? WindowPlacement.OfWindow(hwnd) : null)
+                      ?? WindowPlacement.Covering(normal)
+                      ?? WindowPlacement.OfWindow(hwnd);
+
+        _settings.WindowLeft = normal.Left;
+        _settings.WindowTop = normal.Top;
+        _settings.WindowWidth = normal.Width;
+        _settings.WindowHeight = normal.Height;
+        _settings.WindowState = maximized ? "Maximized" : "Normal";
+        _settings.MonitorDevice = monitor?.Device ?? "";
+        _settings.MonitorLeft = monitor?.Bounds.Left;
+        _settings.MonitorTop = monitor?.Bounds.Top;
+        _settings.MonitorWidth = monitor?.Bounds.Width;
+        _settings.MonitorHeight = monitor?.Bounds.Height;
+        return true;
     }
 
     // ---------------------------------------------------------------- shutdown
@@ -1575,15 +1720,20 @@ public partial class MainWindow : Window
         {
             // Close button hides to tray instead of exiting.
             e.Cancel = true;
-            Hide();
+            HideToTray();
             return;
         }
+
+        // Last chance to read the geometry: by OnClosed the window handle is gone and
+        // Windows has nothing left to tell us about it.
+        CapturePlacement();
         base.OnClosing(e);
     }
 
     protected override void OnClosed(EventArgs e)
     {
         _autoTimer.Stop();
+        _placementSaveTimer.Stop();
         _loadCts?.Cancel();
         _loadCts?.Dispose();
 
@@ -1601,7 +1751,6 @@ public partial class MainWindow : Window
         }
 
         _settings.Tags = TagsBox.Text;
-        SaveWindowPlacement(); // the main window keeps its own geometry in every mode now
         _settings.Save();
         SavePresets();
         _tray?.Dispose();

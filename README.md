@@ -55,8 +55,13 @@ the download button.
   language.
 - Errors show up as red toasts in the top-left corner and stay until you close them; you
   can set them to auto-hide after N seconds instead.
-- Everything (language, scaling, interval, tags, filters, site profiles, window position)
-  is saved to `%APPDATA%\BooruFrame` and restored on the next start.
+- Everything (language, scaling, interval, tags, filters, site profiles) is saved to
+  `%APPDATA%\BooruFrame` and restored on the next start.
+- The window comes back where you left it: same position, same size, same monitor, and
+  maximized again if that is how you left it. It works the same in wallpaper mode, where the
+  window waits in the tray — open it and it is where it always was. If the monitor it used is
+  gone when the app starts, the window moves to one that is still there instead of opening
+  off-screen; if that monitor merely moved or changed resolution, the window follows it.
 
 ## Controls
 

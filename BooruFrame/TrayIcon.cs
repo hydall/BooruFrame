@@ -11,6 +11,7 @@ namespace BooruFrame;
 public sealed class TrayIcon : IDisposable
 {
     private readonly Forms.NotifyIcon _icon;
+    private readonly Icon? _ownIcon;
     private readonly Forms.ToolStripMenuItem _visibilityItem;
     private readonly Forms.ToolStripMenuItem _playItem;
     private readonly Forms.ToolStripMenuItem _prevItem;
@@ -61,9 +62,11 @@ public sealed class TrayIcon : IDisposable
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add(_exitItem);
 
+        _ownIcon = LoadAppIcon();
+
         _icon = new Forms.NotifyIcon
         {
-            Icon = SystemIcons.Application,
+            Icon = _ownIcon ?? SystemIcons.Application,
             Text = "BooruFrame",
             Visible = true,
             ContextMenuStrip = menu,
@@ -76,6 +79,29 @@ public sealed class TrayIcon : IDisposable
 
         Localization.Changed += Refresh;
         Refresh();
+    }
+
+    /// <summary>
+    /// The app's own picture-frame icon, at the size the notification area asks for — the
+    /// .ico carries every size, so nothing has to be resized and it stays sharp on a
+    /// high-DPI taskbar. Falls back to the generic application icon if anything goes wrong.
+    /// </summary>
+    private static Icon? LoadAppIcon()
+    {
+        try
+        {
+            var uri = new Uri("pack://application:,,,/Resources/frame.ico", UriKind.Absolute);
+            var resource = System.Windows.Application.GetResourceStream(uri);
+            if (resource is null)
+                return null;
+
+            using var stream = resource.Stream;
+            return new Icon(stream, Forms.SystemInformation.SmallIconSize);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     public void SetPlaying(bool playing)
@@ -111,6 +137,8 @@ public sealed class TrayIcon : IDisposable
     public void Dispose()
     {
         Localization.Changed -= Refresh;
+        _icon.Visible = false; // otherwise the icon can linger in the tray until hovered
         _icon.Dispose();
+        _ownIcon?.Dispose();
     }
 }
