@@ -1,0 +1,39 @@
+name: Build
+
+# Compile check. Builds the app the same way the release workflow does, but
+# publishes nothing: no tag, no GitHub Release. The exe is kept as a workflow
+# artifact so a build can be picked up and tried without cutting a release.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build
+        run: dotnet build BooruFrame/BooruFrame.csproj -c Release
+
+      - name: Publish self-contained exe
+        run: |
+          dotnet publish BooruFrame/BooruFrame.csproj -c Release -r win-x64 --self-contained `
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+
+      - name: Upload exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BooruFrame-${{ github.sha }}
+          path: BooruFrame/bin/Release/net8.0-windows/win-x64/publish/BooruFrame.exe
+          if-no-files-found: error
