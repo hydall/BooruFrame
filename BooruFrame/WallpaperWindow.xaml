@@ -1,0 +1,22 @@
+<Window x:Class="BooruFrame.WallpaperWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="BooruFrame Wallpaper"
+        Width="640" Height="480"
+        Background="Black"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        ShowActivated="False"
+        WindowStartupLocation="Manual"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True">
+
+    <!-- Picture only: no chrome, no input. Two stacked images for the crossfade. -->
+    <Grid>
+        <Image x:Name="ImgLow" Stretch="UniformToFill" StretchDirection="Both"
+               RenderOptions.BitmapScalingMode="HighQuality"/>
+        <Image x:Name="ImgHigh" Stretch="UniformToFill" StretchDirection="Both"
+               RenderOptions.BitmapScalingMode="HighQuality"/>
+    </Grid>
+</Window>

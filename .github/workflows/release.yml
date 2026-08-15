@@ -1,0 +1,183 @@
+name: Build Release (Publish)
+
+# Builds a release and publishes it to GitHub Releases. Run by hand only: the
+# branch is picked with GitHub's own "Use workflow from" selector, the tag and
+# the description with the fields below.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag (e.g. v1.0.0). Leave empty for v<version>, computed'
+        required: false
+        type: string
+        default: ''
+      release_notes:
+        description: 'Release description (markdown). Leave empty for the commit log'
+        required: false
+        type: string
+        default: ''
+      prerelease:
+        description: 'Mark as a pre-release'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  # Metadata shared by the jobs below.
+  metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      version:       ${{ steps.meta.outputs.version }}
+      tag_name:      ${{ steps.meta.outputs.tag_name }}
+      build_date:    ${{ steps.meta.outputs.build_date }}
+      build_branch:  ${{ steps.meta.outputs.build_branch }}
+      git_sha:       ${{ steps.meta.outputs.git_sha }}
+      commits:       ${{ steps.meta.outputs.commits }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Compute metadata
+        id: meta
+        # Everything that comes from outside the workflow (dispatch inputs, branch
+        # names) is passed through the environment. Interpolating it straight into
+        # the script would let a backtick or a $(…) in the text run as a command.
+        env:
+          INPUT_TAG_NAME: ${{ github.event.inputs.tag_name }}
+          BUILD_BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          # Base version is <Version> in the csproj; the commit count keeps
+          # every build unique so the tag can never collide.
+          VERSION_BASE=$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' BooruFrame/BooruFrame.csproj)
+          MAJOR_MINOR=$(printf '%s' "$VERSION_BASE" | cut -d. -f1-2)
+          COMMIT_COUNT=$(git rev-list --count HEAD)
+          VERSION="${MAJOR_MINOR}.${COMMIT_COUNT}"
+
+          TAG_NAME="$INPUT_TAG_NAME"
+          if [ -z "$TAG_NAME" ]; then
+            TAG_NAME="v${VERSION}"
+          fi
+
+          {
+            echo "version=$VERSION"
+            echo "tag_name=$TAG_NAME"
+            echo "build_date=$(date -u '+%d/%m/%Y %H:%M')"
+            echo "build_branch=$BUILD_BRANCH"
+            echo "git_sha=$(git rev-parse HEAD)"
+          } >> "$GITHUB_OUTPUT"
+
+          # The log for the description runs from the previous tag, or, where
+          # there are no tags yet, over the last ten commits.
+          git fetch --tags --force
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD 2>/dev/null || true)
+          if [ -n "$PREVIOUS_TAG" ]; then
+            COMMIT_LOG=$(git log "$PREVIOUS_TAG"..HEAD --oneline --no-merges || true)
+          else
+            COMMIT_LOG=$(git log -10 --oneline --no-merges || true)
+          fi
+
+          {
+            echo "commits<<COMMITS_EOF"
+            echo "$COMMIT_LOG" | sed 's/^[a-f0-9]\{7,\} /- /'
+            echo "COMMITS_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: metadata
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Publish self-contained exe
+        run: |
+          dotnet publish BooruFrame/BooruFrame.csproj -c Release -r win-x64 --self-contained `
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:Version=${{ needs.metadata.outputs.version }}
+
+      - name: Rename exe
+        run: |
+          Rename-Item "BooruFrame/bin/Release/net8.0-windows/win-x64/publish/BooruFrame.exe" `
+            "BooruFrame-${{ needs.metadata.outputs.tag_name }}.exe"
+
+      - name: Upload exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BooruFrame-release-exe
+          path: "BooruFrame/bin/Release/net8.0-windows/win-x64/publish/BooruFrame-${{ needs.metadata.outputs.tag_name }}.exe"
+          if-no-files-found: error
+
+  release:
+    needs: [metadata, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Download built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: BooruFrame-release-*
+          merge-multiple: true
+          path: release-assets/
+
+      - name: Prepare release notes
+        id: notes
+        # Same rule as in the metadata job: the description and the commit log are
+        # free-form text, so they reach the script as data, never as script source.
+        env:
+          INPUT_RELEASE_NOTES: ${{ github.event.inputs.release_notes }}
+          COMMITS: ${{ needs.metadata.outputs.commits }}
+          TAG_NAME: ${{ needs.metadata.outputs.tag_name }}
+          GIT_SHA: ${{ needs.metadata.outputs.git_sha }}
+          BUILD_BRANCH: ${{ needs.metadata.outputs.build_branch }}
+          BUILD_DATE: ${{ needs.metadata.outputs.build_date }}
+        run: |
+          set -euo pipefail
+
+          RELEASE_NOTES="$INPUT_RELEASE_NOTES"
+          if [ -z "$RELEASE_NOTES" ]; then
+            if [ -n "$COMMITS" ]; then
+              RELEASE_NOTES=$(printf '## Changes\n\n%s' "$COMMITS")
+            else
+              RELEASE_NOTES="Build $TAG_NAME"
+            fi
+          fi
+
+          RELEASE_NOTES=$(printf '%s\n\n---\n\nBuilt from `%s` on `%s`, %s UTC.' \
+            "$RELEASE_NOTES" "$GIT_SHA" "$BUILD_BRANCH" "$BUILD_DATE")
+          {
+            echo "notes<<NOTES_EOF"
+            echo "$RELEASE_NOTES"
+            echo "NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.metadata.outputs.tag_name }}
+          name: BooruFrame ${{ needs.metadata.outputs.tag_name }}
+          body: ${{ steps.notes.outputs.notes }}
+          draft: false
+          prerelease: ${{ github.event.inputs.prerelease == 'true' }}
+          make_latest: ${{ github.event.inputs.prerelease != 'true' }}
+          files: release-assets/*
+          fail_on_unmatched_files: true

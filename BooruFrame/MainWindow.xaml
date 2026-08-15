@@ -1,0 +1,467 @@
+<Window x:Class="BooruFrame.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
+        Title="BooruFrame"
+        Height="720" Width="960"
+        MinHeight="360" MinWidth="480"
+        Background="Black"
+        WindowStyle="None"
+        ResizeMode="CanResize"
+        WindowStartupLocation="CenterScreen"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True">
+
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome CaptionHeight="0" ResizeBorderThickness="6"
+                            GlassFrameThickness="0" CornerRadius="0" UseAeroCaptionButtons="False"/>
+    </shell:WindowChrome.WindowChrome>
+
+    <Grid>
+        <!-- Layer 1: two stacked images for crossfade. ImgHigh is on top. -->
+        <Image x:Name="ImgLow" Stretch="Uniform" StretchDirection="Both"
+               RenderOptions.BitmapScalingMode="HighQuality"/>
+        <Image x:Name="ImgHigh" Stretch="Uniform" StretchDirection="Both"
+               RenderOptions.BitmapScalingMode="HighQuality"/>
+
+        <!-- Layer 2 (centered): status / loading text -->
+        <TextBlock x:Name="StatusText"
+                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                   TextAlignment="Center" TextWrapping="Wrap" MaxWidth="600"
+                   FontSize="16" Foreground="{StaticResource FgDim}"
+                   IsHitTestVisible="False"/>
+
+        <!-- Layer 3: dimming overlay, shown with the settings panel; click closes settings -->
+        <Rectangle x:Name="DimOverlay" Fill="Black" Opacity="0.55"
+                   Visibility="Collapsed" MouseLeftButtonDown="DimOverlay_MouseDown"/>
+
+        <!-- Layer 4a: window controls, top-right -->
+        <Border x:Name="WinControls" HorizontalAlignment="Right" VerticalAlignment="Top"
+                Margin="16" Padding="4" CornerRadius="10"
+                Background="#C8202020" BorderBrush="{StaticResource Stroke}" BorderThickness="1"
+                Visibility="Collapsed">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="16" ShadowDepth="0" Opacity="0.5" Color="Black"/>
+            </Border.Effect>
+            <StackPanel Orientation="Horizontal">
+                <Button x:Name="MinBtn" Style="{StaticResource WinButton}" ToolTip="{DynamicResource L_TipMin}">
+                    <Viewbox Width="12" Height="12">
+                        <Path Style="{StaticResource Icon}" Data="{StaticResource IcoMinus}" Width="24" Height="24"/>
+                    </Viewbox>
+                </Button>
+                <Button x:Name="MaxBtn" Style="{StaticResource WinButton}" ToolTip="{DynamicResource L_TipMax}">
+                    <Viewbox Width="12" Height="12">
+                        <Path x:Name="MaxIcon" Style="{StaticResource Icon}" Data="{StaticResource IcoSquare}" Width="24" Height="24"/>
+                    </Viewbox>
+                </Button>
+                <Button x:Name="CloseBtn" Style="{StaticResource CloseButton}" ToolTip="{DynamicResource L_TipClose}">
+                    <Viewbox Width="12" Height="12">
+                        <Path Style="{StaticResource Icon}" Data="{StaticResource IcoX}" Width="24" Height="24"/>
+                    </Viewbox>
+                </Button>
+            </StackPanel>
+        </Border>
+
+        <!-- Layer 4b: playback / navigation toolbar, bottom-right (vertical) -->
+        <Border x:Name="Toolbar" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                Margin="16" Padding="6" CornerRadius="12"
+                Background="#C8202020" BorderBrush="{StaticResource Stroke}" BorderThickness="1"
+                Visibility="Collapsed">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="16" ShadowDepth="0" Opacity="0.5" Color="Black"/>
+            </Border.Effect>
+            <StackPanel>
+                <Button x:Name="PrevBtn" Style="{StaticResource IconButton}" ToolTip="{DynamicResource L_TipPrev}">
+                    <Viewbox Width="16" Height="16">
+                        <Path Style="{StaticResource Icon}" Data="{StaticResource IcoSkipBack}" Width="24" Height="24"/>
+                    </Viewbox>
+                </Button>
+                <Button x:Name="PlayBtn" Style="{StaticResource IconButton}" ToolTip="{DynamicResource L_TipPlay}">
+                    <Viewbox Width="16" Height="16">
+                        <Path x:Name="PlayIcon" Style="{StaticResource Icon}" Data="{StaticResource IcoPlay}" Width="24" Height="24"/>
+                    </Viewbox>
+                </Button>
+                <Button x:Name="NextBtn" Style="{StaticResource IconButton}" ToolTip="{DynamicResource L_TipNext}">
+                    <Viewbox Width="16" Height="16">
+                        <Path Style="{StaticResource Icon}" Data="{StaticResource IcoSkipForward}" Width="24" Height="24"/>
+                    </Viewbox>
+                </Button>
+                <Button x:Name="DownloadBtn" Style="{StaticResource IconButton}" ToolTip="{DynamicResource L_TipDownload}">
+                    <Viewbox Width="16" Height="16">
+                        <Path Style="{StaticResource Icon}" Data="{StaticResource IcoDownload}" Width="24" Height="24"/>
+                    </Viewbox>
+                </Button>
+                <Button x:Name="SettingsBtn" Style="{StaticResource IconButton}" ToolTip="{DynamicResource L_TipSettings}">
+                    <Viewbox Width="16" Height="16">
+                        <Path Style="{StaticResource Icon}" Data="{StaticResource IcoSettings}" Width="24" Height="24"/>
+                    </Viewbox>
+                </Button>
+            </StackPanel>
+        </Border>
+
+        <!-- Layer 5: settings panel (opened by the gear) -->
+        <Border x:Name="ControlPanel"
+                VerticalAlignment="Bottom" HorizontalAlignment="Right"
+                Margin="0,0,80,24" Padding="20,16"
+                Width="400"
+                CornerRadius="14"
+                Background="#F01D1D1D"
+                BorderBrush="{StaticResource Stroke}" BorderThickness="1"
+                Visibility="Collapsed">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="24" ShadowDepth="0" Opacity="0.6" Color="Black"/>
+            </Border.Effect>
+
+            <ScrollViewer x:Name="PanelScroller" VerticalScrollBarVisibility="Auto" MaxHeight="560">
+              <Grid Margin="0,0,8,0">
+                <StackPanel x:Name="MainSettingsView">
+
+                    <!-- Header: title + close -->
+                    <Grid Margin="0,0,0,12">
+                        <TextBlock Text="{DynamicResource L_Settings}" FontSize="15" FontWeight="SemiBold"
+                                   VerticalAlignment="Center"/>
+                        <Button x:Name="CloseSettingsBtn" Width="30" Height="28" Padding="0"
+                                HorizontalAlignment="Right" ToolTip="{DynamicResource L_Close}" Click="CloseSettings_Click">
+                            <Viewbox Width="12" Height="12">
+                                <Path Style="{StaticResource Icon}" Data="{StaticResource IcoX}" Width="24" Height="24"/>
+                            </Viewbox>
+                        </Button>
+                    </Grid>
+
+                    <!-- Tabs -->
+                    <Border BorderBrush="{StaticResource Stroke}" BorderThickness="0,0,0,1" Margin="0,0,0,14">
+                        <StackPanel Orientation="Horizontal">
+                            <RadioButton x:Name="TabSources" Style="{StaticResource TabButton}"
+                                         Content="{DynamicResource L_TabSources}" GroupName="SettingsTabs"
+                                         IsChecked="True" Checked="Tab_Checked"/>
+                            <RadioButton x:Name="TabDisplay" Style="{StaticResource TabButton}"
+                                         Content="{DynamicResource L_TabDisplay}" GroupName="SettingsTabs"
+                                         Checked="Tab_Checked"/>
+                            <RadioButton x:Name="TabInfo" Style="{StaticResource TabButton}"
+                                         Content="{DynamicResource L_TabInfo}" GroupName="SettingsTabs"
+                                         Checked="Tab_Checked"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- TAB: Sources -->
+                    <StackPanel x:Name="SourcesView">
+                        <!-- Tags -->
+                        <DockPanel LastChildFill="True" Margin="0,0,0,4">
+                            <TextBlock Text="{DynamicResource L_Tags}" DockPanel.Dock="Left" Margin="0,0,8,0" FontWeight="SemiBold"/>
+                            <TextBox x:Name="TagsBox"/>
+                        </DockPanel>
+                        <TextBlock Text="{DynamicResource L_TagsHint}" Foreground="{StaticResource FgDim}"
+                                   FontSize="11" Margin="0,0,0,12"/>
+
+                        <!-- Presets (site profiles) -->
+                        <TextBlock Text="{DynamicResource L_Sites}" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                        <Border BorderBrush="{StaticResource Stroke}" BorderThickness="1" CornerRadius="8" Padding="5">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="150">
+                                <ItemsControl x:Name="PresetList">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Margin="2,3">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <CheckBox Grid.Column="0" VerticalAlignment="Center"
+                                                          IsChecked="{Binding Enabled, Mode=TwoWay}"
+                                                          Click="PresetEnabled_Click"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding Display}" Margin="10,0"
+                                                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                                <Button Grid.Column="2" Width="32" Height="28" Margin="2,0"
+                                                        Padding="0" ToolTip="{DynamicResource L_EditTip}" Click="EditPreset_Click">
+                                                    <Viewbox Width="14" Height="14">
+                                                        <Path Style="{StaticResource Icon}" Data="{StaticResource IcoPencil}" Width="24" Height="24"/>
+                                                    </Viewbox>
+                                                </Button>
+                                                <Button Grid.Column="3" Width="32" Height="28"
+                                                        Padding="0" ToolTip="{DynamicResource L_DeleteTip}" Click="DeletePreset_Click">
+                                                    <Viewbox Width="14" Height="14">
+                                                        <Path Style="{StaticResource Icon}" Data="{StaticResource IcoTrash}" Width="24" Height="24"/>
+                                                    </Viewbox>
+                                                </Button>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </Border>
+                        <Button x:Name="AddPresetButton" Content="{DynamicResource L_AddSite}"
+                                HorizontalAlignment="Left" Margin="0,8,0,0" Click="AddPreset_Click"/>
+                    </StackPanel>
+
+                    <!-- TAB: Display -->
+                    <StackPanel x:Name="DisplayView" Visibility="Collapsed">
+                        <!-- Language -->
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                            <TextBlock Text="{DynamicResource L_Language}" Margin="0,0,10,0" FontWeight="SemiBold"/>
+                            <ComboBox x:Name="LangBox" MinWidth="140"
+                                      SelectionChanged="LangBox_SelectionChanged">
+                                <ComboBoxItem Content="Русский" Tag="Ru"/>
+                                <ComboBoxItem Content="Polski" Tag="Pl"/>
+                                <ComboBoxItem Content="English" Tag="En"/>
+                            </ComboBox>
+                        </StackPanel>
+
+                        <!-- Scale -->
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                            <TextBlock Text="{DynamicResource L_Scale}" Margin="0,0,6,0"/>
+                            <ComboBox x:Name="ScaleBox" MinWidth="150" SelectionChanged="ScaleBox_SelectionChanged">
+                                <ComboBoxItem Content="{DynamicResource L_ScaleFit}" IsSelected="True"/>
+                                <ComboBoxItem Content="{DynamicResource L_ScaleStretch}"/>
+                                <ComboBoxItem Content="{DynamicResource L_ScaleCover}"/>
+                            </ComboBox>
+                        </StackPanel>
+
+                        <!-- Aspect ratio -->
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                            <TextBlock Text="{DynamicResource L_Aspect}" Margin="0,0,6,0"/>
+                            <ComboBox x:Name="AspectBox" MinWidth="140" SelectionChanged="AspectBox_SelectionChanged">
+                                <ComboBoxItem Content="{DynamicResource L_AspectAny}" Tag="Any"/>
+                                <ComboBoxItem Content="{DynamicResource L_AspectLandscape}" Tag="Landscape"/>
+                                <ComboBoxItem Content="{DynamicResource L_AspectPortrait}" Tag="Portrait"/>
+                                <ComboBoxItem Content="{DynamicResource L_AspectSquare}" Tag="Square"/>
+                            </ComboBox>
+                        </StackPanel>
+
+                        <!-- Interval slider -->
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="{DynamicResource L_Interval}" Margin="0,0,10,0"/>
+                            <Slider x:Name="IntervalSlider" Grid.Column="1"
+                                    Minimum="5" Maximum="600" Value="60"
+                                    IsSnapToTickEnabled="True" TickFrequency="1"
+                                    VerticalAlignment="Center"/>
+                            <TextBlock x:Name="IntervalLabel" Grid.Column="2" Margin="12,0,0,0"
+                                       MinWidth="96" TextAlignment="Right" FontWeight="SemiBold"/>
+                        </Grid>
+
+                        <!-- No-repeat cooldown -->
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="{DynamicResource L_NoRepeat}" Margin="0,0,10,0"/>
+                            <Slider x:Name="RepeatSlider" Grid.Column="1"
+                                    Minimum="0" Maximum="50" Value="10"
+                                    IsSnapToTickEnabled="True" TickFrequency="1"
+                                    VerticalAlignment="Center"/>
+                            <TextBlock x:Name="RepeatLabel" Grid.Column="2" Margin="12,0,0,0"
+                                       MinWidth="96" TextAlignment="Right" FontWeight="SemiBold"/>
+                        </Grid>
+
+                        <!-- Auto-hide errors -->
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="{DynamicResource L_HideErrors}" Margin="0,0,10,0"/>
+                            <Slider x:Name="ErrorSlider" Grid.Column="1"
+                                    Minimum="0" Maximum="60" Value="0"
+                                    IsSnapToTickEnabled="True" TickFrequency="1"
+                                    VerticalAlignment="Center"/>
+                            <TextBlock x:Name="ErrorLabel" Grid.Column="2" Margin="12,0,0,0"
+                                       MinWidth="96" TextAlignment="Right" FontWeight="SemiBold"/>
+                        </Grid>
+
+                        <!-- Hide loading animation -->
+                        <CheckBox x:Name="HideAnimCheck" Content="{DynamicResource L_HideAnim}"
+                                  Click="HideAnim_Click"/>
+
+                        <!-- Desktop-frame mode (no real window) -->
+                        <CheckBox x:Name="DesktopFrameCheck" Content="{DynamicResource L_DesktopFrame}"
+                                  Margin="0,12,0,0" Click="DesktopFrameCheck_Click"/>
+                        <TextBlock Text="{DynamicResource L_DesktopFrameHint}"
+                                   Foreground="{StaticResource FgDim}" FontSize="11"
+                                   Margin="0,4,0,0" TextWrapping="Wrap"/>
+
+                        <!-- Wallpaper mode -->
+                        <CheckBox x:Name="WallpaperCheck" Content="{DynamicResource L_Wallpaper}"
+                                  Margin="0,12,0,0" Click="WallpaperCheck_Click"/>
+                        <TextBlock Text="{DynamicResource L_WallpaperHint}"
+                                   Foreground="{StaticResource FgDim}" FontSize="11"
+                                   Margin="0,4,0,0" TextWrapping="Wrap"/>
+                    </StackPanel>
+
+                    <!-- TAB: Info -->
+                    <StackPanel x:Name="InfoView" Visibility="Collapsed">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="{DynamicResource L_InfoName}"
+                                       FontWeight="SemiBold" Margin="0,0,16,12"/>
+                            <TextBlock Grid.Row="0" Grid.Column="1" Text="BooruFrame" Margin="0,0,0,12"/>
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="{DynamicResource L_InfoVersion}"
+                                       FontWeight="SemiBold" Margin="0,0,16,12"/>
+                            <TextBlock Grid.Row="1" Grid.Column="1" x:Name="InfoVersion" Margin="0,0,0,12"/>
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="{DynamicResource L_InfoAuthor}"
+                                       FontWeight="SemiBold" Margin="0,0,16,12"/>
+                            <TextBlock Grid.Row="2" Grid.Column="1" Text="hydall" Margin="0,0,0,12"/>
+
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="{DynamicResource L_InfoRepo}"
+                                       FontWeight="SemiBold" Margin="0,0,16,12"/>
+                            <TextBlock Grid.Row="3" Grid.Column="1" Margin="0,0,0,12">
+                                <Hyperlink NavigateUri="https://github.com/hydall/BooruFrame"
+                                           RequestNavigate="ExternalLink_Click"
+                                           Foreground="{StaticResource AccentHover}">
+                                    github.com/hydall/BooruFrame
+                                </Hyperlink>
+                            </TextBlock>
+
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="{DynamicResource L_InfoSupport}"
+                                       FontWeight="SemiBold" Margin="0,0,16,0"/>
+                            <TextBlock Grid.Row="4" Grid.Column="1">
+                                <Hyperlink NavigateUri="https://buymeacoffee.com/hydall"
+                                           RequestNavigate="ExternalLink_Click"
+                                           Foreground="{StaticResource AccentHover}">
+                                    buymeacoffee.com/hydall
+                                </Hyperlink>
+                            </TextBlock>
+                        </Grid>
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- EDITOR VIEW — fills the whole settings panel -->
+                <StackPanel x:Name="EditorView" Visibility="Collapsed">
+                    <Grid Margin="0,0,0,14">
+                        <Button Width="34" Height="28" Padding="0" HorizontalAlignment="Left"
+                                Click="EditorBack_Click">
+                            <Viewbox Width="16" Height="16">
+                                <Path Style="{StaticResource Icon}" Data="{StaticResource IcoArrowLeft}" Width="24" Height="24"/>
+                            </Viewbox>
+                        </Button>
+                        <TextBlock x:Name="EditorTitle" FontSize="15" FontWeight="SemiBold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Grid>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="{DynamicResource L_Name}" Margin="0,0,10,7"/>
+                        <TextBox   Grid.Row="0" Grid.Column="1" x:Name="EditName" Margin="0,0,0,7"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="{DynamicResource L_Engine}" Margin="0,0,10,7"/>
+                        <ComboBox  Grid.Row="1" Grid.Column="1" x:Name="EditEngine" Margin="0,0,0,7"
+                                   HorizontalAlignment="Left" MinWidth="170"
+                                   SelectionChanged="EditEngine_SelectionChanged">
+                            <ComboBoxItem Content="Danbooru"/>
+                            <ComboBoxItem Content="Gelbooru"/>
+                        </ComboBox>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="{DynamicResource L_Url}" Margin="0,0,10,7"/>
+                        <TextBox   Grid.Row="2" Grid.Column="1" x:Name="EditBaseUrl" Margin="0,0,0,7"/>
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="{DynamicResource L_Login}" Margin="0,0,10,7"/>
+                        <TextBox   Grid.Row="3" Grid.Column="1" x:Name="EditUser" Margin="0,0,0,7"/>
+
+                        <TextBlock Grid.Row="4" Grid.Column="0" Text="{DynamicResource L_ApiKey}" Margin="0,0,10,0"/>
+                        <TextBox   Grid.Row="4" Grid.Column="1" x:Name="EditKey"/>
+                    </Grid>
+                    <TextBlock Text="{DynamicResource L_KeysHint}"
+                               Foreground="{StaticResource FgDim}" FontSize="11" Margin="0,10,0,0" TextWrapping="Wrap"/>
+
+                    <!-- Per-preset content filtering -->
+                    <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                        <TextBlock Text="{DynamicResource L_Filter}" Margin="0,0,8,0"/>
+                        <ComboBox x:Name="EditFilter" MinWidth="200" SelectionChanged="EditFilter_SelectionChanged">
+                            <ComboBoxItem Content="{DynamicResource L_FilterNone}"/>
+                            <ComboBoxItem Content="{DynamicResource L_FilterModerate}"/>
+                            <ComboBoxItem Content="{DynamicResource L_FilterAggressive}"/>
+                            <ComboBoxItem Content="{DynamicResource L_FilterCustom}"/>
+                        </ComboBox>
+                    </StackPanel>
+                    <StackPanel x:Name="ChipsPanel" Visibility="Collapsed" Margin="0,10,0,0">
+                        <TextBlock Text="{DynamicResource L_ExcludeRatingsHint}"
+                                   Foreground="{StaticResource FgDim}" FontSize="11" Margin="0,0,0,8" TextWrapping="Wrap"/>
+                        <StackPanel Orientation="Horizontal">
+                            <ToggleButton x:Name="ChipExplicit" Style="{StaticResource Chip}" Content="explicit"
+                                          Click="Chip_Changed"/>
+                            <ToggleButton x:Name="ChipQuestionable" Style="{StaticResource Chip}" Content="questionable"
+                                          Click="Chip_Changed"/>
+                            <ToggleButton x:Name="ChipSensitive" Style="{StaticResource Chip}" Content="sensitive"
+                                          Click="Chip_Changed"/>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <!-- Per-preset include / exclude tags -->
+                    <TextBlock Text="{DynamicResource L_IncludeTags}" Margin="0,14,0,4"/>
+                    <TextBox x:Name="EditInclude" TextChanged="EditTags_Changed"/>
+                    <TextBlock Text="{DynamicResource L_ExcludeTags}" Margin="0,10,0,4"/>
+                    <TextBox x:Name="EditExclude" TextChanged="EditTags_Changed"/>
+
+                    <!-- Live preview of injected query -->
+                    <TextBlock Text="{DynamicResource L_Preview}" Margin="0,12,0,4" Foreground="{StaticResource FgDim}"/>
+                    <Border CornerRadius="6" Background="{StaticResource FieldBg}"
+                            BorderBrush="{StaticResource Stroke}" BorderThickness="1" Padding="8,6">
+                        <TextBlock x:Name="EditPreview" TextWrapping="Wrap" FontFamily="Consolas"
+                                   Foreground="{StaticResource Fg}" Text="—"/>
+                    </Border>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+                        <Button Content="{DynamicResource L_Save}" Click="SaveEdit_Click" Style="{StaticResource AccentButton}"/>
+                    </StackPanel>
+                </StackPanel>
+              </Grid>
+            </ScrollViewer>
+        </Border>
+
+        <!-- Layer 6: loading indicator — three pulsing dots, bottom-left -->
+        <StackPanel x:Name="LoadingDots" Orientation="Horizontal"
+                    HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                    Margin="20" Visibility="Collapsed" IsHitTestVisible="False">
+            <StackPanel.Triggers>
+                <EventTrigger RoutedEvent="StackPanel.Loaded">
+                    <BeginStoryboard>
+                        <Storyboard RepeatBehavior="Forever">
+                            <DoubleAnimation Storyboard.TargetName="Dot1" Storyboard.TargetProperty="Opacity"
+                                             From="0.25" To="1" Duration="0:0:0.4" AutoReverse="True" BeginTime="0:0:0"/>
+                            <DoubleAnimation Storyboard.TargetName="Dot2" Storyboard.TargetProperty="Opacity"
+                                             From="0.25" To="1" Duration="0:0:0.4" AutoReverse="True" BeginTime="0:0:0.16"/>
+                            <DoubleAnimation Storyboard.TargetName="Dot3" Storyboard.TargetProperty="Opacity"
+                                             From="0.25" To="1" Duration="0:0:0.4" AutoReverse="True" BeginTime="0:0:0.32"/>
+                        </Storyboard>
+                    </BeginStoryboard>
+                </EventTrigger>
+            </StackPanel.Triggers>
+            <Ellipse x:Name="Dot1" Width="11" Height="11" Fill="White" Opacity="0.25" Margin="4,0"/>
+            <Ellipse x:Name="Dot2" Width="11" Height="11" Fill="White" Opacity="0.25" Margin="4,0"/>
+            <Ellipse x:Name="Dot3" Width="11" Height="11" Fill="White" Opacity="0.25" Margin="4,0"/>
+        </StackPanel>
+
+        <!-- Layer 7 (top): error notifications, top-left, persist until closed -->
+        <StackPanel x:Name="NotifyStack" HorizontalAlignment="Left" VerticalAlignment="Top"
+                    Margin="16" MaxWidth="420"/>
+    </Grid>
+</Window>
