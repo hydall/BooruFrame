@@ -5,14 +5,7 @@ namespace BooruFrame;
 
 public partial class App : System.Windows.Application
 {
-    /// <summary>
-    /// Name of the kernel object that marks "this app is running". It has no prefix, so it
-    /// lives in the session's own namespace: another user logged into the same machine still
-    /// gets their own copy, while a second launch by the same user finds this one.
-    /// </summary>
-    private const string InstanceLockName = "BooruFrame.SingleInstance";
-
-    private Mutex? _instanceLock;
+    private SingleInstance? _instance;
 
     /// <summary>
     /// The main window is created by hand rather than through StartupUri, because it is not
@@ -25,43 +18,28 @@ public partial class App : System.Windows.Application
 
         // One copy at a time: two of them would fight over the settings file, the global
         // hotkey and the desktop background layer, and leave two icons in the tray.
-        if (!TakeInstanceLock())
+        _instance = SingleInstance.Claim();
+        if (!_instance.IsOnlyInstance)
         {
-            WarnAlreadyRunning();
+            // Starting the app again is a request to see it, not a mistake — so the copy that
+            // is already running opens its window, and this one steps aside.
+            if (!_instance.AskRunningInstanceToShow())
+                WarnAlreadyRunning();
             Shutdown();
             return;
         }
 
         var window = new MainWindow();
         MainWindow = window; // ShutdownMode=OnMainWindowClose hangs off this
+        _instance.ActivationRequested += window.ShowForAnotherLaunch;
         window.StartUp();
     }
 
-    /// <summary>Claim the name for this process; false means somebody already has it.</summary>
-    private bool TakeInstanceLock()
-    {
-        try
-        {
-            _instanceLock = new Mutex(initiallyOwned: true, InstanceLockName, out var isOnlyInstance);
-            return isOnlyInstance;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // The name is taken by a process we are not allowed to touch — the usual reason is
-            // a copy running elevated while this one is not. Still a copy.
-            return false;
-        }
-        catch (WaitHandleCannotBeOpenedException)
-        {
-            // Something unrelated holds the name. Not our app, so don't refuse to start.
-            return true;
-        }
-    }
-
     /// <summary>
-    /// Say where the copy that is already running can be found. Without this the second launch
-    /// would look like nothing at all happened — the app may well be sitting in the tray with
-    /// no window, which is exactly what wallpaper mode does.
+    /// Last resort for when the running copy cannot be reached — it is running with rights
+    /// this one does not have (elevated, typically). Without a word the second launch would
+    /// look like nothing happened at all, which in wallpaper mode is exactly what it looks
+    /// like anyway: the app has no window on screen.
     /// </summary>
     private static void WarnAlreadyRunning()
     {
@@ -77,10 +55,8 @@ public partial class App : System.Windows.Application
 
     protected override void OnExit(ExitEventArgs e)
     {
-        // Closing the handle is what frees the name for the next run — including after a
-        // crash, where Windows closes it for us.
-        _instanceLock?.Dispose();
-        _instanceLock = null;
+        _instance?.Dispose();
+        _instance = null;
         base.OnExit(e);
     }
 }
